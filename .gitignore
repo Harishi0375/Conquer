@@ -1,2 +1,5 @@
-.devcontainer/
-Dockerfile
+node_modules/
+.env
+*.log
+.DS_Store
+*.zip

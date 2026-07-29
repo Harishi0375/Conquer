@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Waypoint — your travel logbook</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ===================== AUTH SCREEN ===================== -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <span class="auth-mark">&#10148;</span>
+      <h1>Waypoint</h1>
+      <p class="auth-tagline">A logbook for the places you've actually stood.</p>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Log in</button>
+      <button class="auth-tab" data-tab="register">Create account</button>
+    </div>
+
+    <form id="login-form" class="auth-form">
+      <label>Username
+        <input type="text" id="login-username" autocomplete="username" required />
+      </label>
+      <label>Password
+        <input type="password" id="login-password" autocomplete="current-password" required />
+      </label>
+      <button type="submit" class="btn-primary">Log in</button>
+      <p class="auth-error" id="login-error"></p>
+    </form>
+
+    <form id="register-form" class="auth-form hidden">
+      <label>Username
+        <input type="text" id="register-username" autocomplete="username" required minlength="3" maxlength="30" pattern="[a-zA-Z0-9_]+" title="Letters, numbers, underscore only" />
+      </label>
+      <label>Password
+        <input type="password" id="register-password" autocomplete="new-password" required minlength="8" />
+      </label>
+      <button type="submit" class="btn-primary">Create account</button>
+      <p class="auth-error" id="register-error"></p>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div id="app-shell" class="app-shell hidden">
+
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="auth-mark small">&#10148;</span>
+      <span class="brand-name">Waypoint</span>
+    </div>
+    <div class="topbar-stats" id="topbar-stats">
+      <span class="stamp-count" id="stat-countries">0</span> countries &middot;
+      <span class="stamp-count" id="stat-cities">0</span> cities
+    </div>
+    <div class="topbar-user">
+      <span id="current-username"></span>
+      <button id="logout-btn" class="btn-ghost">Log out</button>
+    </div>
+  </header>
+
+  <div class="app-body">
+
+    <!-- LEFT PANEL: logbook -->
+    <aside class="logbook-panel">
+
+      <section class="panel-section">
+        <h2>Mark a place</h2>
+        <p class="hint">Click anywhere on the map to log it.</p>
+        <div id="pending-pin" class="pending-pin hidden">
+          <p class="pending-pin-label" id="pending-pin-label">—</p>
+          <label class="pin-note-label">Note (optional)
+            <input type="text" id="pin-note" placeholder="e.g. layover, road trip" maxlength="255" />
+          </label>
+          <div class="pending-pin-actions">
+            <button id="confirm-pin-btn" class="btn-primary small">Mark as visited</button>
+            <button id="cancel-pin-btn" class="btn-ghost small">Cancel</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <h2>Your places</h2>
+        <ul id="own-locations-list" class="location-list"></ul>
+      </section>
+
+      <section class="panel-section">
+        <h2>Friends</h2>
+        <form id="add-friend-form" class="inline-form">
+          <input type="text" id="friend-username-input" placeholder="username" required />
+          <button type="submit" class="btn-secondary small">Add</button>
+        </form>
+        <p class="form-note" id="friend-request-note"></p>
+
+        <div id="pending-requests" class="pending-requests"></div>
+
+        <ul id="friends-list" class="friends-list"></ul>
+      </section>
+
+    </aside>
+
+    <!-- MAP -->
+    <main class="map-area">
+      <div id="map"></div>
+    </main>
+
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
