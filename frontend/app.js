@@ -1,17 +1,55 @@
 // ============================================================
-// Waypoint frontend — vanilla JS, no build step required.
+// CONQUER frontend — vanilla JS, no build step required.
 // API_BASE_URL comes from config.js
 // ============================================================
 
-const FRIEND_COLOR = '#4C8C86';
+const FRIEND_PALETTE = ['#4C8C86', '#7C5CBF', '#BF5C7C', '#5C8FBF', '#8FBF5C', '#BF8F5C', '#5CBFAE', '#BF5C5C'];
 
-let authToken = localStorage.getItem('waypoint_token');
-let currentUsername = localStorage.getItem('waypoint_username');
+// Best-effort alias map: normalizes common country-name variants (as returned
+// by Nominatim reverse geocoding) to the exact names used in the bundled
+// world-countries.geo.json file, so the shading matches up. Anything not
+// listed here is compared as-is (works for the large majority of countries).
+const COUNTRY_ALIASES = {
+  'united states': 'united states of america',
+  'usa': 'united states of america',
+  'russian federation': 'russia',
+  'republic of korea': 'south korea',
+  "korea, republic of": 'south korea',
+  "democratic people's republic of korea": 'north korea',
+  'czechia': 'czech republic',
+  "côte d'ivoire": 'ivory coast',
+  "cote d'ivoire": 'ivory coast',
+  'tanzania': 'united republic of tanzania',
+  'north macedonia': 'macedonia',
+  'burma': 'myanmar',
+  'eswatini': 'swaziland',
+  'timor-leste': 'east timor',
+  'congo-kinshasa': 'democratic republic of the congo',
+  'dr congo': 'democratic republic of the congo',
+  'congo-brazzaville': 'republic of the congo',
+  'congo': 'republic of the congo',
+  'uk': 'united kingdom',
+};
+
+function normalizeCountryKey(name) {
+  if (!name) return null;
+  const key = name.trim().toLowerCase();
+  return COUNTRY_ALIASES[key] || key;
+}
+
+let authToken = localStorage.getItem('conquer_token');
+let currentUsername = localStorage.getItem('conquer_username');
 
 let map;
+let worldGeoData = null;
+
 let ownMarkersById = {};   // location id -> Leaflet marker
 let ownLocations = [];     // cached array of own location objects
-let friendState = {};      // friendId -> { username, layerGroup, loaded, visible }
+let ownCountryLayer = null;
+
+let friendState = {};      // friendId -> { username, color, markerLayer, countryLayer, loaded, visible }
+let friendColorAssignments = {}; // friendId -> color, stable across re-renders
+
 let pendingCoords = null;  // { lat, lng, label, city, country, street }
 
 // ---------- API helper ----------
@@ -84,14 +122,14 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
 function completeLogin(token, username) {
   authToken = token;
   currentUsername = username;
-  localStorage.setItem('waypoint_token', token);
-  localStorage.setItem('waypoint_username', username);
+  localStorage.setItem('conquer_token', token);
+  localStorage.setItem('conquer_username', username);
   enterApp();
 }
 
 document.getElementById('logout-btn').addEventListener('click', () => {
-  localStorage.removeItem('waypoint_token');
-  localStorage.removeItem('waypoint_username');
+  localStorage.removeItem('conquer_token');
+  localStorage.removeItem('conquer_username');
   window.location.reload();
 });
 
@@ -105,25 +143,30 @@ async function boot() {
   try {
     const data = await apiFetch('/auth/me');
     currentUsername = data.user.username;
-    localStorage.setItem('waypoint_username', currentUsername);
+    localStorage.setItem('conquer_username', currentUsername);
     enterApp();
   } catch (err) {
-    // token invalid/expired
-    localStorage.removeItem('waypoint_token');
-    localStorage.removeItem('waypoint_username');
+    localStorage.removeItem('conquer_token');
+    localStorage.removeItem('conquer_username');
     authToken = null;
     authScreen.classList.remove('hidden');
     appShell.classList.add('hidden');
   }
 }
 
-function enterApp() {
+async function enterApp() {
   authScreen.classList.add('hidden');
   appShell.classList.remove('hidden');
   document.getElementById('current-username').textContent = currentUsername;
 
   if (!map) initMap();
-  loadOwnLocations();
+
+  await Promise.all([
+    loadWorldGeoData(),
+    loadOwnLocations(),
+  ]);
+  buildOwnCountryLayer();
+
   loadFriends();
   loadPendingRequests();
 }
@@ -140,23 +183,76 @@ function initMap() {
   map.on('click', onMapClick);
 }
 
-function stampIcon(isFriend) {
+document.getElementById('reset-view-btn').addEventListener('click', () => {
+  map.setView([20, 0], 2);
+});
+
+function sealIcon(friendColor) {
+  const style = friendColor ? ` style="--friend-color:${friendColor}"` : '';
+  const cls = friendColor ? 'seal-marker friend-marker' : 'seal-marker';
   return L.divIcon({
     className: '',
-    html: `<div class="stamp-marker${isFriend ? ' friend-marker' : ''}"></div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    popupAnchor: [0, -13],
+    html: `<div class="${cls}"${style}></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12],
   });
+}
+
+// ---------- World country data & shading ----------
+async function loadWorldGeoData() {
+  if (worldGeoData) return;
+  const res = await fetch('data/world-countries.geo.json');
+  worldGeoData = await res.json();
+}
+
+function buildOwnCountryLayer() {
+  if (!worldGeoData) return;
+  const visitedKeys = new Set(ownLocations.map((l) => normalizeCountryKey(l.country)).filter(Boolean));
+
+  if (ownCountryLayer) {
+    map.removeLayer(ownCountryLayer);
+  }
+
+  ownCountryLayer = L.geoJSON(worldGeoData, {
+    style: (feature) => {
+      const key = (feature.properties.name || '').toLowerCase();
+      const visited = visitedKeys.has(key);
+      return visited
+        ? { fillColor: '#D4A144', fillOpacity: 0.32, color: '#A87A22', weight: 1.5, interactive: true }
+        : { fillColor: 'transparent', fillOpacity: 0, color: '#332C22', weight: 0.6, opacity: 0.6, interactive: false };
+    },
+    onEachFeature: (feature, layer) => {
+      layer.on('click', (e) => {
+        const key = (feature.properties.name || '').toLowerCase();
+        if (visitedKeys.has(key)) {
+          L.DomEvent.stopPropagation(e);
+          map.fitBounds(layer.getBounds(), { padding: [40, 40] });
+        }
+      });
+    },
+  }).addTo(map);
+}
+
+function friendCountryStyleFactory(color, visitedKeys) {
+  return (feature) => {
+    const key = (feature.properties.name || '').toLowerCase();
+    const visited = visitedKeys.has(key);
+    return visited
+      ? { fillColor: color, fillOpacity: 0.2, color, weight: 1, dashArray: '3 3', interactive: false }
+      : { fillColor: 'transparent', fillOpacity: 0, weight: 0, interactive: false };
+  };
 }
 
 async function onMapClick(e) {
   const { lat, lng } = e.latlng;
   const pendingPanel = document.getElementById('pending-pin');
   const label = document.getElementById('pending-pin-label');
+  const dateInput = document.getElementById('pin-date');
 
   pendingPanel.classList.remove('hidden');
   label.textContent = 'Looking up this place…';
+  dateInput.value = new Date().toISOString().slice(0, 10);
   pendingCoords = { lat, lng, label: '', city: null, country: null, street: null };
 
   try {
@@ -192,6 +288,7 @@ document.getElementById('cancel-pin-btn').addEventListener('click', () => {
 document.getElementById('confirm-pin-btn').addEventListener('click', async () => {
   if (!pendingCoords) return;
   const note = document.getElementById('pin-note').value.trim();
+  const visitedAt = document.getElementById('pin-date').value || null;
 
   try {
     const data = await apiFetch('/locations', {
@@ -203,7 +300,7 @@ document.getElementById('confirm-pin-btn').addEventListener('click', async () =>
         city: pendingCoords.city,
         country: pendingCoords.country,
         street: pendingCoords.street,
-        visited_at: new Date().toISOString().slice(0, 10),
+        visited_at: visitedAt,
       }),
     });
     addOwnLocationToState(data.location);
@@ -217,17 +314,13 @@ document.getElementById('confirm-pin-btn').addEventListener('click', async () =>
 
 // ---------- Own locations ----------
 async function loadOwnLocations() {
-  try {
-    const data = await apiFetch('/locations');
-    ownLocations = data.locations;
-    Object.values(ownMarkersById).forEach((m) => map.removeLayer(m));
-    ownMarkersById = {};
-    ownLocations.forEach((loc) => addOwnLocationToMap(loc));
-    renderOwnLocationsList();
-    updateStats();
-  } catch (err) {
-    console.error('Failed to load locations', err);
-  }
+  const data = await apiFetch('/locations');
+  ownLocations = data.locations;
+  Object.values(ownMarkersById).forEach((m) => map.removeLayer(m));
+  ownMarkersById = {};
+  ownLocations.forEach((loc) => addOwnLocationToMap(loc));
+  renderOwnLocationsList();
+  updateStats();
 }
 
 function addOwnLocationToState(loc) {
@@ -235,14 +328,26 @@ function addOwnLocationToState(loc) {
   addOwnLocationToMap(loc);
   renderOwnLocationsList();
   updateStats();
+  buildOwnCountryLayer();
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return null;
+  // The API returns DATE columns as full ISO timestamps (e.g. "2019-06-15T00:00:00.000Z"),
+  // so we parse directly rather than assuming a bare "YYYY-MM-DD" string.
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function addOwnLocationToMap(loc) {
-  const marker = L.marker([loc.lat, loc.lng], { icon: stampIcon(false) }).addTo(map);
+  const marker = L.marker([loc.lat, loc.lng], { icon: sealIcon(null) }).addTo(map);
   const title = [loc.street, loc.city, loc.country].filter(Boolean).join(', ') || `${loc.lat.toFixed(3)}, ${loc.lng.toFixed(3)}`;
+  const dateStr = formatDate(loc.visited_at);
+  const metaParts = [dateStr, loc.label].filter(Boolean);
   marker.bindPopup(
     `<p class="popup-title">${escapeHtml(title)}</p>` +
-    (loc.label ? `<p class="popup-note">${escapeHtml(loc.label)}</p>` : '')
+    (metaParts.length ? `<p class="popup-meta">${escapeHtml(metaParts.join(' — '))}</p>` : '')
   );
   ownMarkersById[loc.id] = marker;
 }
@@ -251,16 +356,18 @@ function renderOwnLocationsList() {
   const list = document.getElementById('own-locations-list');
   list.innerHTML = '';
   if (ownLocations.length === 0) {
-    list.innerHTML = '<li class="empty-note">Nothing logged yet — click the map to start.</li>';
+    list.innerHTML = '<li class="empty-note">Nothing claimed yet — click the map to start.</li>';
     return;
   }
   ownLocations.forEach((loc) => {
     const li = document.createElement('li');
     const title = [loc.city, loc.country].filter(Boolean).join(', ') || `${loc.lat.toFixed(2)}, ${loc.lng.toFixed(2)}`;
+    const dateStr = formatDate(loc.visited_at);
+    const metaParts = [dateStr, loc.label].filter(Boolean);
     li.innerHTML = `
       <div class="loc-main">
         <span class="loc-place">${escapeHtml(title)}</span>
-        ${loc.label ? `<span class="loc-note">${escapeHtml(loc.label)}</span>` : ''}
+        ${metaParts.length ? `<span class="loc-meta">${escapeHtml(metaParts.join(' — '))}</span>` : ''}
       </div>
       <button class="loc-delete" data-id="${loc.id}" title="Remove">✕</button>
     `;
@@ -282,6 +389,7 @@ async function deleteOwnLocation(id) {
     ownLocations = ownLocations.filter((l) => l.id !== id);
     renderOwnLocationsList();
     updateStats();
+    buildOwnCountryLayer();
   } catch (err) {
     alert(err.message);
   }
@@ -308,7 +416,7 @@ document.getElementById('add-friend-form').addEventListener('submit', async (e) 
       method: 'POST',
       body: JSON.stringify({ username }),
     });
-    note.textContent = `Friend request sent to ${username}.`;
+    note.textContent = `Request sent to ${username}.`;
     input.value = '';
   } catch (err) {
     note.textContent = err.message;
@@ -356,6 +464,14 @@ async function loadPendingRequests() {
   }
 }
 
+function colorForFriend(friendId) {
+  if (!friendColorAssignments[friendId]) {
+    const usedCount = Object.keys(friendColorAssignments).length;
+    friendColorAssignments[friendId] = FRIEND_PALETTE[usedCount % FRIEND_PALETTE.length];
+  }
+  return friendColorAssignments[friendId];
+}
+
 async function loadFriends() {
   try {
     const data = await apiFetch('/friends');
@@ -363,16 +479,19 @@ async function loadFriends() {
     list.innerHTML = '';
 
     if (data.friends.length === 0) {
-      list.innerHTML = '<li class="empty-note">No friends yet — add one by username above.</li>';
+      list.innerHTML = '<li class="empty-note">No allies yet — add one by username above.</li>';
       return;
     }
 
     data.friends.forEach((f) => {
+      const color = colorForFriend(f.user_id);
       if (!friendState[f.user_id]) {
         friendState[f.user_id] = {
           username: f.username,
           friendshipId: f.friendship_id,
-          layerGroup: L.layerGroup(),
+          color,
+          markerLayer: L.layerGroup(),
+          countryLayer: null,
           loaded: false,
           visible: false,
         };
@@ -382,10 +501,10 @@ async function loadFriends() {
       li.innerHTML = `
         <label class="friend-toggle">
           <input type="checkbox" data-friend-id="${f.user_id}" />
-          <span class="friend-color-dot" style="background:${FRIEND_COLOR}"></span>
-          ${escapeHtml(f.username)}
+          <span class="friend-color-dot" style="background:${color}"></span>
+          <span class="friend-username">${escapeHtml(f.username)}</span>
         </label>
-        <button class="friend-remove" data-remove="${f.friendship_id}" title="Remove friend">✕</button>
+        <button class="friend-remove" data-remove="${f.friendship_id}" title="Remove ally">✕</button>
       `;
       list.appendChild(li);
     });
@@ -395,7 +514,7 @@ async function loadFriends() {
     });
     list.querySelectorAll('[data-remove]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        if (!confirm('Remove this friend?')) return;
+        if (!confirm('Remove this ally?')) return;
         try {
           await apiFetch(`/friends/${btn.dataset.remove}`, { method: 'DELETE' });
           loadFriends();
@@ -414,15 +533,28 @@ async function toggleFriendOverlay(friendId, visible) {
   if (visible && !state.loaded) {
     try {
       const data = await apiFetch(`/locations/friend/${friendId}`);
+      const visitedKeys = new Set();
+
       data.locations.forEach((loc) => {
-        const marker = L.marker([loc.lat, loc.lng], { icon: stampIcon(true) });
+        if (loc.country) visitedKeys.add(normalizeCountryKey(loc.country));
+
+        const marker = L.marker([loc.lat, loc.lng], { icon: sealIcon(state.color) });
         const title = [loc.street, loc.city, loc.country].filter(Boolean).join(', ') || `${loc.lat.toFixed(3)}, ${loc.lng.toFixed(3)}`;
+        const dateStr = formatDate(loc.visited_at);
+        const metaParts = [state.username, dateStr, loc.label].filter(Boolean);
         marker.bindPopup(
           `<p class="popup-title">${escapeHtml(title)}</p>` +
-          `<p class="popup-note">${escapeHtml(state.username)}${loc.label ? ' — ' + escapeHtml(loc.label) : ''}</p>`
+          `<p class="popup-meta">${escapeHtml(metaParts.join(' — '))}</p>`
         );
-        state.layerGroup.addLayer(marker);
+        state.markerLayer.addLayer(marker);
       });
+
+      if (worldGeoData) {
+        state.countryLayer = L.geoJSON(worldGeoData, {
+          style: friendCountryStyleFactory(state.color, visitedKeys),
+        });
+      }
+
       state.loaded = true;
     } catch (err) {
       alert(err.message);
@@ -432,9 +564,11 @@ async function toggleFriendOverlay(friendId, visible) {
 
   state.visible = visible;
   if (visible) {
-    state.layerGroup.addTo(map);
+    state.markerLayer.addTo(map);
+    if (state.countryLayer) state.countryLayer.addTo(map);
   } else {
-    map.removeLayer(state.layerGroup);
+    map.removeLayer(state.markerLayer);
+    if (state.countryLayer) map.removeLayer(state.countryLayer);
   }
 }
 

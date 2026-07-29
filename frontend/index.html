@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Waypoint — your travel logbook</title>
+<title>CONQUER — claim the places you've been</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="style.css" />
@@ -17,9 +17,9 @@
 <div id="auth-screen" class="auth-screen">
   <div class="auth-card">
     <div class="auth-brand">
-      <span class="auth-mark">&#10148;</span>
-      <h1>Waypoint</h1>
-      <p class="auth-tagline">A logbook for the places you've actually stood.</p>
+      <span class="crest">&#9873;</span>
+      <h1>CONQUER</h1>
+      <p class="auth-tagline">Claim every place you've stood on.</p>
     </div>
 
     <div class="auth-tabs">
@@ -54,67 +54,73 @@
 <!-- ===================== MAIN APP ===================== -->
 <div id="app-shell" class="app-shell hidden">
 
-  <header class="topbar">
-    <div class="topbar-brand">
-      <span class="auth-mark small">&#10148;</span>
-      <span class="brand-name">Waypoint</span>
-    </div>
-    <div class="topbar-stats" id="topbar-stats">
-      <span class="stamp-count" id="stat-countries">0</span> countries &middot;
-      <span class="stamp-count" id="stat-cities">0</span> cities
-    </div>
-    <div class="topbar-user">
-      <span id="current-username"></span>
-      <button id="logout-btn" class="btn-ghost">Log out</button>
-    </div>
-  </header>
+  <aside class="sidebar">
 
-  <div class="app-body">
+    <div class="sidebar-brand">
+      <span class="crest small">&#9873;</span>
+      <h1>CONQUER</h1>
+    </div>
 
-    <!-- LEFT PANEL: logbook -->
-    <aside class="logbook-panel">
+    <div class="scoreboard">
+      <div class="score-item">
+        <span class="score-num" id="stat-countries">0</span>
+        <span class="score-label">Countries</span>
+      </div>
+      <div class="score-item">
+        <span class="score-num" id="stat-cities">0</span>
+        <span class="score-label">Cities</span>
+      </div>
+    </div>
 
-      <section class="panel-section">
-        <h2>Mark a place</h2>
-        <p class="hint">Click anywhere on the map to log it.</p>
-        <div id="pending-pin" class="pending-pin hidden">
-          <p class="pending-pin-label" id="pending-pin-label">—</p>
-          <label class="pin-note-label">Note (optional)
-            <input type="text" id="pin-note" placeholder="e.g. layover, road trip" maxlength="255" />
-          </label>
-          <div class="pending-pin-actions">
-            <button id="confirm-pin-btn" class="btn-primary small">Mark as visited</button>
-            <button id="cancel-pin-btn" class="btn-ghost small">Cancel</button>
-          </div>
+    <button id="reset-view-btn" class="btn-ghost small full-width">&#127760; View whole world</button>
+
+    <section class="panel-section">
+      <h2>Mark a place</h2>
+      <p class="hint">Click anywhere on the map to claim it. Click a gold country to zoom into what you've already claimed there.</p>
+      <div id="pending-pin" class="pending-pin hidden">
+        <p class="pending-pin-label" id="pending-pin-label">—</p>
+        <label class="pin-field-label">Note (optional)
+          <input type="text" id="pin-note" placeholder="e.g. layover, road trip" maxlength="255" />
+        </label>
+        <label class="pin-field-label">Date visited
+          <input type="date" id="pin-date" />
+        </label>
+        <div class="pending-pin-actions">
+          <button id="confirm-pin-btn" class="btn-primary small">Claim it</button>
+          <button id="cancel-pin-btn" class="btn-ghost small">Cancel</button>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="panel-section">
-        <h2>Your places</h2>
-        <ul id="own-locations-list" class="location-list"></ul>
-      </section>
+    <section class="panel-section scroll-section">
+      <h2>Your territory</h2>
+      <ul id="own-locations-list" class="location-list"></ul>
+    </section>
 
-      <section class="panel-section">
-        <h2>Friends</h2>
-        <form id="add-friend-form" class="inline-form">
-          <input type="text" id="friend-username-input" placeholder="username" required />
-          <button type="submit" class="btn-secondary small">Add</button>
-        </form>
-        <p class="form-note" id="friend-request-note"></p>
+    <section class="panel-section scroll-section">
+      <h2>Allies</h2>
+      <form id="add-friend-form" class="inline-form">
+        <input type="text" id="friend-username-input" placeholder="username" required />
+        <button type="submit" class="btn-secondary small">Add</button>
+      </form>
+      <p class="form-note" id="friend-request-note"></p>
 
-        <div id="pending-requests" class="pending-requests"></div>
+      <div id="pending-requests" class="pending-requests"></div>
 
-        <ul id="friends-list" class="friends-list"></ul>
-      </section>
+      <ul id="friends-list" class="friends-list"></ul>
+    </section>
 
-    </aside>
+    <div class="sidebar-footer">
+      <span id="current-username"></span>
+      <button id="logout-btn" class="btn-ghost small">Log out</button>
+    </div>
 
-    <!-- MAP -->
-    <main class="map-area">
-      <div id="map"></div>
-    </main>
+  </aside>
 
-  </div>
+  <main class="map-area">
+    <div id="map"></div>
+  </main>
+
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
