@@ -13,9 +13,6 @@ CONQUER is a personal travel map. Click anywhere in the world to log a visit —
 - **Allies** — add friends by username, accept/decline requests, and see their claimed territory overlaid in a color assigned to them automatically.
 - **Your log** — every place you've claimed, with its date and note, listed and editable from the sidebar.
 
-## How it's built
 
-- **Frontend:** plain HTML/CSS/JS + [Leaflet.js](https://leafletjs.com/) for the map, no framework or build step.
-- **Backend:** Node.js + Express, JWT-based auth, PostgreSQL.
-- **Place lookup:** [Nominatim](https://nominatim.org/) (OpenStreetMap) — free reverse geocoding, no API key.
-- **Territory shading:** a bundled world country boundary file, matched against whatever country name each visit resolves to.
+![alt text](images/boys_image.png)
+![alt text](images/everyone.png)
