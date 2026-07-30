@@ -75,6 +75,15 @@
     <button id="reset-view-btn" class="btn-ghost small full-width">&#127760; View whole world</button>
 
     <section class="panel-section">
+      <h2>Search</h2>
+      <form id="search-form" class="inline-form">
+        <input type="text" id="search-input" placeholder="city or country" />
+        <button type="submit" class="btn-secondary small">Go</button>
+      </form>
+      <ul id="search-results" class="search-results hidden"></ul>
+    </section>
+
+    <section class="panel-section">
       <h2>Mark a place</h2>
       <p class="hint">Click anywhere on the map to claim it. Click a gold country to zoom into what you've already claimed there.</p>
       <div id="pending-pin" class="pending-pin hidden">
@@ -94,6 +103,7 @@
 
     <section class="panel-section scroll-section">
       <h2>Your territory</h2>
+      <div id="country-chips" class="country-chips"></div>
       <ul id="own-locations-list" class="location-list"></ul>
     </section>
 

@@ -46,6 +46,7 @@ let worldGeoData = null;
 let ownMarkersById = {};   // location id -> Leaflet marker
 let ownLocations = [];     // cached array of own location objects
 let ownCountryLayer = null;
+let ownCountryBounds = {}; // normalized country key -> Leaflet LatLngBounds
 
 let friendState = {};      // friendId -> { username, color, markerLayer, countryLayer, loaded, visible }
 let friendColorAssignments = {}; // friendId -> color, stable across re-renders
@@ -214,24 +215,58 @@ function buildOwnCountryLayer() {
     map.removeLayer(ownCountryLayer);
   }
 
+  ownCountryBounds = {};
+
+  // interactive is always false here — country shading is purely visual now,
+  // so clicking anywhere (even inside an already-claimed country) still opens
+  // the "add a place" flow via the map's own click handler, instead of the
+  // polygon swallowing the click to zoom in.
   ownCountryLayer = L.geoJSON(worldGeoData, {
     style: (feature) => {
       const key = (feature.properties.name || '').toLowerCase();
       const visited = visitedKeys.has(key);
       return visited
-        ? { fillColor: '#D4A144', fillOpacity: 0.32, color: '#A87A22', weight: 1.5, interactive: true }
+        ? { fillColor: '#D4A144', fillOpacity: 0.32, color: '#A87A22', weight: 1.5, interactive: false }
         : { fillColor: 'transparent', fillOpacity: 0, color: '#332C22', weight: 0.6, opacity: 0.6, interactive: false };
     },
     onEachFeature: (feature, layer) => {
-      layer.on('click', (e) => {
-        const key = (feature.properties.name || '').toLowerCase();
-        if (visitedKeys.has(key)) {
-          L.DomEvent.stopPropagation(e);
-          map.fitBounds(layer.getBounds(), { padding: [40, 40] });
-        }
-      });
+      const key = (feature.properties.name || '').toLowerCase();
+      if (visitedKeys.has(key)) {
+        ownCountryBounds[key] = layer.getBounds();
+      }
     },
   }).addTo(map);
+
+  renderCountryChips();
+}
+
+function renderCountryChips() {
+  const container = document.getElementById('country-chips');
+  container.innerHTML = '';
+
+  const seen = new Map(); // normalized key -> { label, count }
+  ownLocations.forEach((loc) => {
+    if (!loc.country) return;
+    const key = normalizeCountryKey(loc.country);
+    if (!seen.has(key)) seen.set(key, { label: loc.country, count: 0 });
+    seen.get(key).count += 1;
+  });
+
+  if (seen.size === 0) return;
+
+  seen.forEach(({ label, count }, key) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'country-chip';
+    chip.textContent = `${label} (${count})`;
+    chip.addEventListener('click', () => {
+      const bounds = ownCountryBounds[key];
+      if (bounds) {
+        map.fitBounds(bounds, { padding: [40, 40] });
+      }
+    });
+    container.appendChild(chip);
+  });
 }
 
 function friendCountryStyleFactory(color, visitedKeys) {
@@ -258,7 +293,7 @@ async function onMapClick(e) {
   try {
     // Nominatim reverse geocoding — free, no API key. Please keep click
     // frequency reasonable (their usage policy asks for ~1 request/sec).
-    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`;
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1&accept-language=en`;
     const res = await fetch(url);
     const data = await res.json();
     const addr = data.address || {};
@@ -320,6 +355,7 @@ async function loadOwnLocations() {
   ownMarkersById = {};
   ownLocations.forEach((loc) => addOwnLocationToMap(loc));
   renderOwnLocationsList();
+  renderCountryChips();
   updateStats();
 }
 
@@ -328,7 +364,7 @@ function addOwnLocationToState(loc) {
   addOwnLocationToMap(loc);
   renderOwnLocationsList();
   updateStats();
-  buildOwnCountryLayer();
+  buildOwnCountryLayer(); // rebuilds bounds + chips together
 }
 
 function formatDate(dateStr) {
@@ -389,7 +425,7 @@ async function deleteOwnLocation(id) {
     ownLocations = ownLocations.filter((l) => l.id !== id);
     renderOwnLocationsList();
     updateStats();
-    buildOwnCountryLayer();
+    buildOwnCountryLayer(); // rebuilds bounds + chips together
   } catch (err) {
     alert(err.message);
   }
@@ -571,6 +607,49 @@ async function toggleFriendOverlay(friendId, visible) {
     if (state.countryLayer) map.removeLayer(state.countryLayer);
   }
 }
+
+// ---------- Search (jump to a city or country) ----------
+document.getElementById('search-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('search-input');
+  const query = input.value.trim();
+  const resultsList = document.getElementById('search-results');
+  if (!query) return;
+
+  resultsList.classList.remove('hidden');
+  resultsList.innerHTML = '<li class="empty-note">Searching…</li>';
+
+  try {
+    // Nominatim forward geocoding (place name -> coordinates), English results.
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=en&limit=5`;
+    const res = await fetch(url);
+    const places = await res.json();
+
+    if (!places.length) {
+      resultsList.innerHTML = '<li class="empty-note">No results found.</li>';
+      return;
+    }
+
+    resultsList.innerHTML = '';
+    places.forEach((place) => {
+      const li = document.createElement('li');
+      li.className = 'search-result-item';
+      li.textContent = place.display_name;
+      li.addEventListener('click', () => {
+        const lat = parseFloat(place.lat);
+        const lon = parseFloat(place.lon);
+        const zoom = place.type === 'country' ? 5 : place.class === 'boundary' ? 8 : 11;
+        map.flyTo([lat, lon], zoom);
+        resultsList.classList.add('hidden');
+        resultsList.innerHTML = '';
+        input.value = '';
+      });
+      resultsList.appendChild(li);
+    });
+  } catch (err) {
+    resultsList.innerHTML = '<li class="empty-note">Search failed — try again.</li>';
+  }
+});
 
 // ---------- Utility ----------
 function escapeHtml(str) {
