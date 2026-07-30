@@ -410,6 +410,64 @@ button:focus-visible, input:focus-visible {
   background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--friend-color, var(--muted)) 55%, transparent), color-mix(in srgb, var(--friend-color, var(--muted)) 18%, transparent));
 }
 
+/* ============ Map controls, themed to match ============ */
+.leaflet-bar {
+  border: 1px solid var(--panel-line) !important;
+  border-radius: 4px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+}
+.leaflet-bar a {
+  background: var(--panel) !important;
+  color: var(--ink-light) !important;
+  border-bottom: 1px solid var(--panel-line) !important;
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+}
+.leaflet-bar a:hover { background: var(--gold-dark) !important; color: #1A1409 !important; }
+.leaflet-bar a:last-child { border-bottom: none !important; }
+
+.leaflet-control-attribution {
+  background: rgba(28,23,19,0.85) !important;
+  color: var(--muted) !important;
+  border-radius: 3px;
+  font-size: 10.5px;
+}
+.leaflet-control-attribution a { color: var(--gold); }
+
+.leaflet-control-scale-line {
+  background: rgba(28,23,19,0.85) !important;
+  border-color: var(--muted) !important;
+  color: var(--ink-light) !important;
+}
+
+/* ============ Marker hover polish ============ */
+.seal-marker { transition: transform 0.15s ease; cursor: pointer; }
+.seal-marker:hover { transform: scale(1.25); }
+
+/* ============ Search-result pulse highlight ============ */
+.search-highlight-marker {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.search-highlight-ring {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 0 rgba(212,161,68,0.6);
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(212,161,68,0.6); }
+  70% { box-shadow: 0 0 0 22px rgba(212,161,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(212,161,68,0); }
+}
+
 /* ============ Responsive ============ */
 @media (max-width: 820px) {
   .app-shell { flex-direction: column; }

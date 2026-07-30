@@ -174,18 +174,31 @@ async function enterApp() {
 
 // ---------- Map ----------
 function initMap() {
-  map = L.map('map', { worldCopyJump: true }).setView([20, 0], 2);
+  map = L.map('map', {
+    worldCopyJump: true,           // infinite horizontal scroll, like Google Maps
+    minZoom: 2,                    // can't zoom out past "whole world fits"
+    maxBounds: L.latLngBounds(L.latLng(-85, -Infinity), L.latLng(85, Infinity)),
+    maxBoundsViscosity: 1.0,       // solid "bounce back" at the poles instead of gray rectangle
+    zoomControl: false,            // replaced below with a themed, repositioned one
+  }).setView([20, 0], 2);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    minZoom: 2,
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
+    subdomains: 'abcd',
+    detectRetina: true,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(map);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  L.control.scale({ position: 'bottomleft', imperial: false, maxWidth: 120 }).addTo(map);
 
   map.on('click', onMapClick);
 }
 
 document.getElementById('reset-view-btn').addEventListener('click', () => {
-  map.setView([20, 0], 2);
+  clearSearchHighlight();
+  map.setView([20, 0], 2, { animate: true, duration: 1.2 });
 });
 
 function sealIcon(friendColor) {
@@ -198,6 +211,29 @@ function sealIcon(friendColor) {
     iconAnchor: [12, 12],
     popupAnchor: [0, -12],
   });
+}
+
+let searchHighlightMarker = null;
+
+function showSearchHighlight(lat, lng) {
+  clearSearchHighlight();
+  searchHighlightMarker = L.marker([lat, lng], {
+    icon: L.divIcon({
+      className: '',
+      html: '<div class="search-highlight-marker"><div class="search-highlight-ring"></div></div>',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+    }),
+    interactive: false,
+    zIndexOffset: 1000,
+  }).addTo(map);
+}
+
+function clearSearchHighlight() {
+  if (searchHighlightMarker) {
+    map.removeLayer(searchHighlightMarker);
+    searchHighlightMarker = null;
+  }
 }
 
 // ---------- World country data & shading ----------
@@ -260,6 +296,7 @@ function renderCountryChips() {
     chip.className = 'country-chip';
     chip.textContent = `${label} (${count})`;
     chip.addEventListener('click', () => {
+      clearSearchHighlight();
       const bounds = ownCountryBounds[key];
       if (bounds) {
         map.fitBounds(bounds, { padding: [40, 40] });
@@ -280,6 +317,7 @@ function friendCountryStyleFactory(color, visitedKeys) {
 }
 
 async function onMapClick(e) {
+  clearSearchHighlight();
   const { lat, lng } = e.latlng;
   const pendingPanel = document.getElementById('pending-pin');
   const label = document.getElementById('pending-pin-label');
@@ -315,12 +353,14 @@ async function onMapClick(e) {
 }
 
 document.getElementById('cancel-pin-btn').addEventListener('click', () => {
+  clearSearchHighlight();
   pendingCoords = null;
   document.getElementById('pending-pin').classList.add('hidden');
   document.getElementById('pin-note').value = '';
 });
 
 document.getElementById('confirm-pin-btn').addEventListener('click', async () => {
+  clearSearchHighlight();
   if (!pendingCoords) return;
   const note = document.getElementById('pin-note').value.trim();
   const visitedAt = document.getElementById('pin-date').value || null;
@@ -620,8 +660,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
   resultsList.innerHTML = '<li class="empty-note">Searching…</li>';
 
   try {
-    // Nominatim forward geocoding (place name -> coordinates), English results.
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=en&limit=5`;
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=en&addressdetails=1&limit=5`;
     const res = await fetch(url);
     const places = await res.json();
 
@@ -638,8 +677,22 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
       li.addEventListener('click', () => {
         const lat = parseFloat(place.lat);
         const lon = parseFloat(place.lon);
-        const zoom = place.type === 'country' ? 5 : place.class === 'boundary' ? 8 : 11;
-        map.flyTo([lat, lon], zoom);
+        const zoom = place.type === 'country' ? 5 : place.class === 'boundary' ? 8 : 12;
+        map.flyTo([lat, lon], zoom, { animate: true, duration: 1.2 });
+        showSearchHighlight(lat, lon);
+
+        const addr = place.address || {};
+        const city = addr.city || addr.town || addr.village || addr.municipality || null;
+        const country = addr.country || null;
+        const street = addr.road || null;
+        const parts = [street, city, country].filter(Boolean);
+        const displayLabel = parts.length ? parts.join(', ') : place.display_name;
+
+        pendingCoords = { lat, lng: lon, label: displayLabel, city, country, street };
+        document.getElementById('pin-date').value = new Date().toISOString().slice(0, 10);
+        document.getElementById('pending-pin-label').textContent = displayLabel;
+        document.getElementById('pending-pin').classList.remove('hidden');
+
         resultsList.classList.add('hidden');
         resultsList.innerHTML = '';
         input.value = '';
