@@ -6,9 +6,26 @@ const router = express.Router();
 
 router.use(requireAuth);
 
+// Attach a photos[] array to each location, in one extra query instead of N+1.
+async function attachPhotos(locations) {
+  const ids = locations.map((l) => l.id);
+  if (ids.length === 0) return locations.map((l) => ({ ...l, photos: [] }));
+
+  const photoResult = await pool.query(
+    'SELECT location_id, photo FROM location_photos WHERE location_id = ANY($1) ORDER BY id ASC',
+    [ids]
+  );
+  const byLocation = {};
+  photoResult.rows.forEach((r) => {
+    if (!byLocation[r.location_id]) byLocation[r.location_id] = [];
+    byLocation[r.location_id].push(r.photo);
+  });
+  return locations.map((l) => ({ ...l, photos: byLocation[l.id] || [] }));
+}
+
 // Add a visited location for the logged-in user
 router.post('/', async (req, res) => {
-  const { lat, lng, label, city, country, street, visited_at } = req.body || {};
+  const { lat, lng, label, city, country, street, visited_at, trip_name, photos } = req.body || {};
 
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ error: 'lat and lng must be numbers.' });
@@ -16,15 +33,36 @@ router.post('/', async (req, res) => {
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     return res.status(400).json({ error: 'lat/lng out of range.' });
   }
+  if (photos !== undefined && !Array.isArray(photos)) {
+    return res.status(400).json({ error: 'photos must be an array of image data.' });
+  }
 
   try {
     const result = await pool.query(
-      `INSERT INTO visited_locations (user_id, lat, lng, label, city, country, street, visited_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, lat, lng, label, city, country, street, visited_at, created_at`,
-      [req.userId, lat, lng, label || null, city || null, country || null, street || null, visited_at || null]
+      `INSERT INTO visited_locations (user_id, lat, lng, label, city, country, street, visited_at, trip_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, lat, lng, label, city, country, street, visited_at, trip_name, created_at`,
+      [req.userId, lat, lng, label || null, city || null, country || null, street || null, visited_at || null, trip_name || null]
     );
-    res.status(201).json({ location: result.rows[0] });
+    const location = result.rows[0];
+
+    let savedPhotos = [];
+    if (Array.isArray(photos) && photos.length > 0) {
+      const values = [];
+      const placeholders = photos
+        .map((p) => {
+          values.push(location.id, p);
+          return `($${values.length - 1}, $${values.length})`;
+        })
+        .join(', ');
+      const photoResult = await pool.query(
+        `INSERT INTO location_photos (location_id, photo) VALUES ${placeholders} RETURNING photo`,
+        values
+      );
+      savedPhotos = photoResult.rows.map((r) => r.photo);
+    }
+
+    res.status(201).json({ location: { ...location, photos: savedPhotos } });
   } catch (err) {
     console.error('Add location error:', err);
     res.status(500).json({ error: 'Could not save location.' });
@@ -35,17 +73,18 @@ router.post('/', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, lat, lng, label, city, country, street, visited_at, created_at FROM visited_locations WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT id, lat, lng, label, city, country, street, visited_at, trip_name, created_at FROM visited_locations WHERE user_id = $1 ORDER BY created_at DESC',
       [req.userId]
     );
-    res.json({ locations: result.rows });
+    const withPhotos = await attachPhotos(result.rows);
+    res.json({ locations: withPhotos });
   } catch (err) {
     console.error('List locations error:', err);
     res.status(500).json({ error: 'Could not fetch locations.' });
   }
 });
 
-// Delete one of your own locations
+// Delete one of your own locations (its photos cascade-delete automatically)
 router.delete('/:id', async (req, res) => {
   try {
     const result = await pool.query(
@@ -81,10 +120,11 @@ router.get('/friend/:friendId', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, lat, lng, label, city, country, street, visited_at FROM visited_locations WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT id, lat, lng, label, city, country, street, visited_at, trip_name FROM visited_locations WHERE user_id = $1 ORDER BY created_at DESC',
       [friendId]
     );
-    res.json({ locations: result.rows });
+    const withPhotos = await attachPhotos(result.rows);
+    res.json({ locations: withPhotos });
   } catch (err) {
     console.error('Friend locations error:', err);
     res.status(500).json({ error: 'Could not fetch friend locations.' });

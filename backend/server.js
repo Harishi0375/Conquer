@@ -24,6 +24,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/friends', friendRoutes);
+app.use(express.json({ limit: '5mb' }));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

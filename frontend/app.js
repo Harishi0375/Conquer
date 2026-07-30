@@ -170,6 +170,7 @@ async function enterApp() {
 
   loadFriends();
   loadPendingRequests();
+  loadLeaderboard();
 }
 
 // ---------- Map ----------
@@ -299,7 +300,7 @@ function renderCountryChips() {
       clearSearchHighlight();
       const bounds = ownCountryBounds[key];
       if (bounds) {
-        map.fitBounds(bounds, { padding: [40, 40] });
+        map.fitBounds(bounds, { padding: [40, 40], animate: true, duration: 1 });
       }
     });
     container.appendChild(chip);
@@ -331,7 +332,7 @@ async function onMapClick(e) {
   try {
     // Nominatim reverse geocoding — free, no API key. Please keep click
     // frequency reasonable (their usage policy asks for ~1 request/sec).
-    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1&accept-language=en`;
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`;
     const res = await fetch(url);
     const data = await res.json();
     const addr = data.address || {};
@@ -360,12 +361,15 @@ document.getElementById('cancel-pin-btn').addEventListener('click', () => {
 });
 
 document.getElementById('confirm-pin-btn').addEventListener('click', async () => {
-  clearSearchHighlight();
   if (!pendingCoords) return;
   const note = document.getElementById('pin-note').value.trim();
   const visitedAt = document.getElementById('pin-date').value || null;
+  const tripName = document.getElementById('pin-trip-name').value.trim() || null;
+  const photoFiles = Array.from(document.getElementById('pin-photo').files || []);
 
   try {
+    const photos = await Promise.all(photoFiles.map((f) => compressImageToTarget(f)));
+
     const data = await apiFetch('/locations', {
       method: 'POST',
       body: JSON.stringify({
@@ -376,12 +380,17 @@ document.getElementById('confirm-pin-btn').addEventListener('click', async () =>
         country: pendingCoords.country,
         street: pendingCoords.street,
         visited_at: visitedAt,
+        trip_name: tripName,
+        photos,
       }),
     });
     addOwnLocationToState(data.location);
     document.getElementById('pending-pin').classList.add('hidden');
     document.getElementById('pin-note').value = '';
+    document.getElementById('pin-trip-name').value = '';
+    document.getElementById('pin-photo').value = '';
     pendingCoords = null;
+    clearSearchHighlight();
   } catch (err) {
     alert(err.message);
   }
@@ -396,6 +405,7 @@ async function loadOwnLocations() {
   ownLocations.forEach((loc) => addOwnLocationToMap(loc));
   renderOwnLocationsList();
   renderCountryChips();
+  renderAchievements();
   updateStats();
 }
 
@@ -403,8 +413,10 @@ function addOwnLocationToState(loc) {
   ownLocations.unshift(loc);
   addOwnLocationToMap(loc);
   renderOwnLocationsList();
+  renderAchievements();
   updateStats();
   buildOwnCountryLayer(); // rebuilds bounds + chips together
+  loadLeaderboard();
 }
 
 function formatDate(dateStr) {
@@ -416,15 +428,48 @@ function formatDate(dateStr) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+function buildPhotoListHtml(photos) {
+  if (!photos || photos.length === 0) return '';
+  return `<div class="popup-photo-list">${photos.map((p) => `<img src="${p}" class="popup-photo-list-item" alt="" />`).join('')}</div>`;
+}
+
+// Hover over a marker with photos: cycle through them in a small floating
+// tooltip. Click the marker: open the full popup with every photo listed.
+function attachPhotoHover(marker, photos) {
+  if (!photos || photos.length === 0) return;
+
+  let idx = 0;
+  let intervalId = null;
+  marker.bindTooltip('', { direction: 'top', offset: [0, -14], opacity: 0.95, className: 'photo-hover-tooltip', sticky: false });
+
+  marker.on('mouseover', () => {
+    idx = 0;
+    marker.setTooltipContent(`<img src="${photos[idx]}" class="hover-photo" alt="" />`);
+    marker.openTooltip();
+    if (photos.length > 1) {
+      intervalId = setInterval(() => {
+        idx = (idx + 1) % photos.length;
+        marker.setTooltipContent(`<img src="${photos[idx]}" class="hover-photo" alt="" />`);
+      }, 900);
+    }
+  });
+  marker.on('mouseout', () => {
+    if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    marker.closeTooltip();
+  });
+}
+
 function addOwnLocationToMap(loc) {
   const marker = L.marker([loc.lat, loc.lng], { icon: sealIcon(null) }).addTo(map);
   const title = [loc.street, loc.city, loc.country].filter(Boolean).join(', ') || `${loc.lat.toFixed(3)}, ${loc.lng.toFixed(3)}`;
   const dateStr = formatDate(loc.visited_at);
-  const metaParts = [dateStr, loc.label].filter(Boolean);
+  const metaParts = [dateStr, loc.trip_name, loc.label].filter(Boolean);
   marker.bindPopup(
+    buildPhotoListHtml(loc.photos) +
     `<p class="popup-title">${escapeHtml(title)}</p>` +
     (metaParts.length ? `<p class="popup-meta">${escapeHtml(metaParts.join(' — '))}</p>` : '')
   );
+  attachPhotoHover(marker, loc.photos);
   ownMarkersById[loc.id] = marker;
 }
 
@@ -435,19 +480,44 @@ function renderOwnLocationsList() {
     list.innerHTML = '<li class="empty-note">Nothing claimed yet — click the map to start.</li>';
     return;
   }
-  ownLocations.forEach((loc) => {
-    const li = document.createElement('li');
-    const title = [loc.city, loc.country].filter(Boolean).join(', ') || `${loc.lat.toFixed(2)}, ${loc.lng.toFixed(2)}`;
-    const dateStr = formatDate(loc.visited_at);
-    const metaParts = [dateStr, loc.label].filter(Boolean);
-    li.innerHTML = `
-      <div class="loc-main">
-        <span class="loc-place">${escapeHtml(title)}</span>
-        ${metaParts.length ? `<span class="loc-meta">${escapeHtml(metaParts.join(' — '))}</span>` : ''}
-      </div>
-      <button class="loc-delete" data-id="${loc.id}" title="Remove">✕</button>
-    `;
-    list.appendChild(li);
+
+  // Timeline order: most recently visited first (falls back to when it was added).
+  const sorted = [...ownLocations].sort((a, b) => {
+    const da = new Date(a.visited_at || a.created_at).getTime();
+    const db = new Date(b.visited_at || b.created_at).getTime();
+    return db - da;
+  });
+
+  const groups = new Map(); // trip name (or null for ungrouped) -> locations
+  sorted.forEach((loc) => {
+    const key = loc.trip_name || null;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(loc);
+  });
+
+  groups.forEach((locs, tripName) => {
+    if (tripName) {
+      const header = document.createElement('li');
+      header.className = 'trip-group-header';
+      header.textContent = tripName;
+      list.appendChild(header);
+    }
+    locs.forEach((loc) => {
+      const li = document.createElement('li');
+      const title = [loc.city, loc.country].filter(Boolean).join(', ') || `${loc.lat.toFixed(2)}, ${loc.lng.toFixed(2)}`;
+      const dateStr = formatDate(loc.visited_at);
+      const metaParts = [dateStr, loc.label].filter(Boolean);
+      const thumbHtml = loc.photos && loc.photos[0] ? `<img src="${loc.photos[0]}" class="loc-thumb" alt="" />` : '';
+      li.innerHTML = `
+        ${thumbHtml}
+        <div class="loc-main">
+          <span class="loc-place">${escapeHtml(title)}</span>
+          ${metaParts.length ? `<span class="loc-meta">${escapeHtml(metaParts.join(' — '))}</span>` : ''}
+        </div>
+        <button class="loc-delete" data-id="${loc.id}" title="Remove">✕</button>
+      `;
+      list.appendChild(li);
+    });
   });
 
   list.querySelectorAll('.loc-delete').forEach((btn) => {
@@ -464,8 +534,10 @@ async function deleteOwnLocation(id) {
     }
     ownLocations = ownLocations.filter((l) => l.id !== id);
     renderOwnLocationsList();
+    renderAchievements();
     updateStats();
     buildOwnCountryLayer(); // rebuilds bounds + chips together
+    loadLeaderboard();
   } catch (err) {
     alert(err.message);
   }
@@ -619,9 +691,11 @@ async function toggleFriendOverlay(friendId, visible) {
         const dateStr = formatDate(loc.visited_at);
         const metaParts = [state.username, dateStr, loc.label].filter(Boolean);
         marker.bindPopup(
+          buildPhotoListHtml(loc.photos) +
           `<p class="popup-title">${escapeHtml(title)}</p>` +
           `<p class="popup-meta">${escapeHtml(metaParts.join(' — '))}</p>`
         );
+        attachPhotoHover(marker, loc.photos);
         state.markerLayer.addLayer(marker);
       });
 
@@ -660,6 +734,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
   resultsList.innerHTML = '<li class="empty-note">Searching…</li>';
 
   try {
+    // Nominatim forward geocoding (place name -> coordinates), English results.
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=en&addressdetails=1&limit=5`;
     const res = await fetch(url);
     const places = await res.json();
@@ -681,6 +756,8 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
         map.flyTo([lat, lon], zoom, { animate: true, duration: 1.2 });
         showSearchHighlight(lat, lon);
 
+        // Pre-fill the claim panel straight from the search result — no need
+        // for a second reverse-geocode round trip, and no need to click again.
         const addr = place.address || {};
         const city = addr.city || addr.town || addr.village || addr.municipality || null;
         const country = addr.country || null;
@@ -703,6 +780,102 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
     resultsList.innerHTML = '<li class="empty-note">Search failed — try again.</li>';
   }
 });
+
+// ---------- Trip memory: photo compression ----------
+function compressImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) { height *= maxDim / width; width = maxDim; }
+        else if (height >= width && height > maxDim) { width *= maxDim / height; height = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Compresses toward ~100KB: tries shrinking quality first, then dimensions,
+// stopping once under target or after a handful of attempts either way.
+async function compressImageToTarget(file, targetBytes = 100 * 1024) {
+  const approxBytes = (dataUrl) => Math.ceil((dataUrl.length * 3) / 4);
+
+  let dim = 800;
+  let quality = 0.7;
+  let dataUrl = await compressImage(file, dim, quality);
+
+  let attempts = 0;
+  while (approxBytes(dataUrl) > targetBytes && attempts < 5) {
+    quality = Math.max(0.3, quality - 0.1);
+    dataUrl = await compressImage(file, dim, quality);
+    attempts++;
+  }
+  while (approxBytes(dataUrl) > targetBytes && dim > 300 && attempts < 10) {
+    dim -= 150;
+    dataUrl = await compressImage(file, dim, quality);
+    attempts++;
+  }
+  return dataUrl;
+}
+
+// ---------- Gamification: achievements ----------
+const ACHIEVEMENTS = [
+  { id: 'first_claim', label: 'First Claim', icon: '🚩', test: (s) => s.pins >= 1 },
+  { id: 'city_hopper', label: 'City Hopper', icon: '🏙️', test: (s) => s.cities >= 5 },
+  { id: 'well_traveled', label: 'Well Traveled', icon: '🧳', test: (s) => s.cities >= 10 },
+  { id: 'globetrotter', label: 'Globetrotter', icon: '🌍', test: (s) => s.countries >= 5 },
+  { id: 'world_conqueror', label: 'World Conqueror', icon: '👑', test: (s) => s.countries >= 15 },
+];
+
+function renderAchievements() {
+  const countries = new Set(ownLocations.map((l) => l.country).filter(Boolean)).size;
+  const cities = new Set(ownLocations.map((l) => l.city).filter(Boolean)).size;
+  const stats = { pins: ownLocations.length, countries, cities };
+
+  const grid = document.getElementById('achievements-grid');
+  grid.innerHTML = '';
+  ACHIEVEMENTS.forEach((a) => {
+    const earned = a.test(stats);
+    const div = document.createElement('div');
+    div.className = `achievement-badge${earned ? ' earned' : ''}`;
+    div.title = a.label;
+    div.innerHTML = `<span class="achievement-icon">${a.icon}</span><span class="achievement-label">${a.label}</span>`;
+    grid.appendChild(div);
+  });
+}
+
+// ---------- Gamification: leaderboard ----------
+async function loadLeaderboard() {
+  try {
+    const data = await apiFetch('/friends/leaderboard');
+    const list = document.getElementById('leaderboard-list');
+    list.innerHTML = '';
+    const medals = ['🥇', '🥈', '🥉'];
+    data.leaderboard.forEach((row, i) => {
+      const li = document.createElement('li');
+      const isMe = row.username === currentUsername;
+      li.className = isMe ? 'leaderboard-item me' : 'leaderboard-item';
+      li.innerHTML = `
+        <span class="leaderboard-rank">${medals[i] || i + 1}</span>
+        <span class="leaderboard-name">${escapeHtml(row.username)}${isMe ? ' (you)' : ''}</span>
+        <span class="leaderboard-score">${row.countries} countries · ${row.cities} cities</span>
+      `;
+      list.appendChild(li);
+    });
+  } catch (err) {
+    console.error('Failed to load leaderboard', err);
+  }
+}
 
 // ---------- Utility ----------
 function escapeHtml(str) {

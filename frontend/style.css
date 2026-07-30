@@ -523,3 +523,175 @@ button:focus-visible, input:focus-visible {
   cursor: pointer;
 }
 .country-chip:hover { background: var(--gold-dark); color: #1A1409; }
+
+/* ============ Achievements ============ */
+.achievements-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.achievement-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 10px 6px;
+  background: var(--void-deep);
+  border: 1px solid var(--panel-line);
+  border-radius: 4px;
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+.achievement-badge.earned {
+  opacity: 1;
+  filter: none;
+  border-color: var(--gold-dark);
+  background: var(--gold-dim);
+}
+.achievement-icon { font-size: 20px; }
+.achievement-label { font-size: 10px; color: var(--ink-light); line-height: 1.2; }
+
+/* ============ Leaderboard ============ */
+.leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--void-deep);
+  border: 1px solid var(--panel-line);
+  border-radius: 3px;
+  font-size: 12.5px;
+}
+.leaderboard-item.me { border-color: var(--gold-dark); background: var(--gold-dim); }
+.leaderboard-rank { font-family: var(--font-mono); width: 20px; flex-shrink: 0; }
+.leaderboard-name { flex: 1; color: var(--ink-light); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leaderboard-score { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+
+/* ============ Trip grouping + photos ============ */
+.trip-group-header {
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gold);
+  padding: 6px 2px 2px;
+  background: none !important;
+  border: none !important;
+}
+.loc-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.popup-photo {
+  width: 100%;
+  max-width: 200px;
+  border-radius: 3px;
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* Hover-cycling photo preview */
+.photo-hover-tooltip {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.photo-hover-tooltip::before { display: none; }
+.hover-photo {
+  width: 90px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 2px solid var(--gold-dark);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  display: block;
+}
+
+/* Full photo list shown in the click popup */
+.popup-photo-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 220px;
+  margin-bottom: 6px;
+}
+.popup-photo-list-item {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+/* ============ Map controls, themed to match ============ */
+.leaflet-bar {
+  border: 1px solid var(--panel-line) !important;
+  border-radius: 4px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+}
+.leaflet-bar a {
+  background: var(--panel) !important;
+  color: var(--ink-light) !important;
+  border-bottom: 1px solid var(--panel-line) !important;
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+}
+.leaflet-bar a:hover { background: var(--gold-dark) !important; color: #1A1409 !important; }
+.leaflet-bar a:last-child { border-bottom: none !important; }
+
+.leaflet-control-attribution {
+  background: rgba(28,23,19,0.85) !important;
+  color: var(--muted) !important;
+  border-radius: 3px;
+  font-size: 10.5px;
+}
+.leaflet-control-attribution a { color: var(--gold); }
+
+.leaflet-control-scale-line {
+  background: rgba(28,23,19,0.85) !important;
+  border-color: var(--muted) !important;
+  color: var(--ink-light) !important;
+}
+
+/* ============ Marker hover polish ============ */
+.seal-marker { transition: transform 0.15s ease; cursor: pointer; }
+.seal-marker:hover { transform: scale(1.25); }
+
+/* ============ Search-result pulse highlight ============ */
+.search-highlight-marker {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.search-highlight-ring {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 0 rgba(212,161,68,0.6);
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(212,161,68,0.6); }
+  70% { box-shadow: 0 0 0 22px rgba(212,161,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(212,161,68,0); }
+}

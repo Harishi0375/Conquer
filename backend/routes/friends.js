@@ -119,4 +119,29 @@ router.get('/pending', async (req, res) => {
   }
 });
 
+// Leaderboard: you + all accepted friends, ranked by countries then cities
+router.get('/leaderboard', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.username,
+              COUNT(DISTINCT vl.country) FILTER (WHERE vl.country IS NOT NULL) AS countries,
+              COUNT(DISTINCT vl.city) FILTER (WHERE vl.city IS NOT NULL) AS cities
+       FROM users u
+       LEFT JOIN visited_locations vl ON vl.user_id = u.id
+       WHERE u.id = $1
+          OR u.id IN (
+            SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END
+            FROM friendships WHERE status = 'accepted' AND (requester_id = $1 OR addressee_id = $1)
+          )
+       GROUP BY u.id, u.username
+       ORDER BY countries DESC, cities DESC, u.username ASC`,
+      [req.userId]
+    );
+    res.json({ leaderboard: result.rows });
+  } catch (err) {
+    console.error('Leaderboard error:', err);
+    res.status(500).json({ error: 'Could not load leaderboard.' });
+  }
+});
+
 module.exports = router;

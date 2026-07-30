@@ -94,11 +94,22 @@
         <label class="pin-field-label">Date visited
           <input type="date" id="pin-date" />
         </label>
+        <label class="pin-field-label">Trip name (optional)
+          <input type="text" id="pin-trip-name" placeholder="e.g. Japan 2024" maxlength="255" />
+        </label>
+        <label class="pin-field-label">Photos (optional)
+          <input type="file" id="pin-photo" accept="image/*" multiple />
+        </label>
         <div class="pending-pin-actions">
           <button id="confirm-pin-btn" class="btn-primary small">Claim it</button>
           <button id="cancel-pin-btn" class="btn-ghost small">Cancel</button>
         </div>
       </div>
+    </section>
+
+    <section class="panel-section">
+      <h2>Achievements</h2>
+      <div id="achievements-grid" class="achievements-grid"></div>
     </section>
 
     <section class="panel-section scroll-section">
@@ -118,6 +129,11 @@
       <div id="pending-requests" class="pending-requests"></div>
 
       <ul id="friends-list" class="friends-list"></ul>
+    </section>
+
+    <section class="panel-section scroll-section">
+      <h2>Leaderboard</h2>
+      <ul id="leaderboard-list" class="leaderboard-list"></ul>
     </section>
 
     <div class="sidebar-footer">
